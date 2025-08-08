@@ -92,3 +92,113 @@
     proof-data: (buff 1024),
   }
 )
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Transfer administrative control to a new principal
+(define-public (set-admin (new-admin principal))
+  (begin
+    (asserts! (is-eq tx-sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (is-eq new-admin tx-sender)) ERR-INVALID-INPUT)
+    (var-set admin new-admin)
+    (ok true)
+  )
+)
+
+;; IDENTITY MANAGEMENT FUNCTIONS
+
+;; Register a new identity in the TrustForge protocol
+(define-public (register-identity
+    (identity-hash (buff 32))
+    (recovery-addr (optional principal))
+  )
+  (let (
+      (sender tx-sender)
+      (existing-identity (map-get? identities sender))
+    )
+    (asserts! (is-none existing-identity) ERR-ALREADY-REGISTERED)
+    (asserts! (is-valid-hash identity-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-recovery-address recovery-addr)
+      ERR-INVALID-RECOVERY-ADDRESS
+    )
+
+    (map-set identities sender {
+      hash: identity-hash,
+      credentials: (list),
+      reputation-score: u100,
+      recovery-address: recovery-addr,
+      last-updated: block-height,
+      status: "ACTIVE",
+    })
+    (ok true)
+  )
+)
+
+;; CREDENTIAL MANAGEMENT FUNCTIONS
+
+;; Associate a credential with an identity (Admin-only function)
+(define-public (add-credential-to-identity
+    (subject principal)
+    (credential-principal principal)
+  )
+  (let (
+      (sender tx-sender)
+      (identity (map-get? identities subject))
+    )
+    (asserts! (is-some identity) ERR-NOT-REGISTERED)
+    (asserts! (is-eq sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts! (can-add-credential (get credentials (unwrap-panic identity)))
+      ERR-CREDENTIAL-LIMIT
+    )
+
+    (map-set identities subject
+      (merge (unwrap-panic identity) {
+        credentials: (unwrap-panic (as-max-len?
+          (append (get credentials (unwrap-panic identity)) credential-principal)
+          u10
+        )),
+      })
+    )
+    (ok true)
+  )
+)
+
+;; Issue a verifiable credential to a registered identity
+(define-public (issue-credential
+    (subject principal)
+    (claim-hash (buff 32))
+    (expiration uint)
+    (metadata (string-utf8 256))
+  )
+  (let (
+      (sender tx-sender)
+      (current-nonce (var-get credential-nonce))
+      (credential-id {
+        issuer: sender,
+        nonce: current-nonce,
+      })
+      (issuer-identity (map-get? identities sender))
+      (subject-identity (map-get? identities subject))
+    )
+    (asserts! (is-some issuer-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-some subject-identity) ERR-NOT-REGISTERED)
+    (asserts! (is-valid-hash claim-hash) ERR-INVALID-INPUT)
+    (asserts! (is-valid-expiration expiration) ERR-INVALID-EXPIRATION)
+    (asserts! (is-valid-metadata-length metadata) ERR-INVALID-INPUT)
+
+    ;; Increment nonce and record credential
+    (var-set credential-nonce (+ current-nonce u1))
+    (map-set credential-map credential-id {
+      subject: subject,
+      claim-hash: claim-hash,
+      expiration: expiration,
+      revoked: false,
+      metadata: metadata,
+    })
+
+    ;; Attempt to add credential to identity
+    (try! (add-credential-to-identity subject sender))
+
+    (ok true)
+  )
+)
