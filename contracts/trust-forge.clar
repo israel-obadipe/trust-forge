@@ -307,3 +307,68 @@
     nonce: nonce,
   })
 )
+
+;; Verify if a credential is valid and not revoked or expired
+(define-read-only (verify-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (let ((credential (unwrap!
+      (map-get? credential-map {
+        issuer: issuer,
+        nonce: nonce,
+      })
+      ERR-INVALID-CREDENTIAL
+    )))
+    (ok (and
+      (not (get revoked credential))
+      (< block-height (get expiration credential))
+    ))
+  )
+)
+
+;; Retrieve zero-knowledge proof data by proof hash
+(define-read-only (get-proof (proof-hash (buff 32)))
+  (map-get? zero-knowledge-proofs proof-hash)
+)
+
+;; PRIVATE UTILITY FUNCTIONS
+
+;; Validate recovery address ensuring security constraints
+(define-private (is-valid-recovery-address (recovery-addr (optional principal)))
+  (match recovery-addr
+    recovery-principal (and
+      (not (is-eq recovery-principal tx-sender))
+      (not (is-eq recovery-principal (var-get admin)))
+    )
+    true
+  )
+)
+
+;; Validate zero-knowledge proof data meets minimum requirements
+(define-private (is-valid-proof-data (proof-data (buff 1024)))
+  (and
+    (>= (len proof-data) MINIMUM-PROOF-SIZE)
+    (not (is-eq proof-data 0x))
+  )
+)
+
+;; Validate expiration is sufficiently in the future
+(define-private (is-valid-expiration (expiration uint))
+  (> expiration (+ block-height MIN-EXPIRATION-BLOCKS))
+)
+
+;; Validate metadata length does not exceed limits
+(define-private (is-valid-metadata-length (metadata (string-utf8 256)))
+  (<= (len metadata) MAX-METADATA-LENGTH)
+)
+
+;; Validate hash is not the zero hash
+(define-private (is-valid-hash (hash (buff 32)))
+  (not (is-eq hash 0x0000000000000000000000000000000000000000000000000000000000000000))
+)
+
+;; Check if credential can be added to identity credential list
+(define-private (can-add-credential (current-credentials (list 10 principal)))
+  (< (len current-credentials) MAX-CREDENTIALS)
+)
