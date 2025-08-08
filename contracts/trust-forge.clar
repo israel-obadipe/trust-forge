@@ -202,3 +202,108 @@
     (ok true)
   )
 )
+
+;; Revoke a previously issued credential
+(define-public (revoke-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (let (
+      (sender tx-sender)
+      (credential-id {
+        issuer: issuer,
+        nonce: nonce,
+      })
+      (credential (map-get? credential-map credential-id))
+    )
+    (asserts! (is-some credential) ERR-INVALID-CREDENTIAL)
+    (asserts! (is-eq sender issuer) ERR-NOT-AUTHORIZED)
+
+    (map-set credential-map credential-id
+      (merge (unwrap-panic credential) { revoked: true })
+    )
+    (ok true)
+  )
+)
+
+;; REPUTATION MANAGEMENT FUNCTIONS
+
+;; Modify reputation score for a registered identity (Admin-only)
+(define-public (update-reputation
+    (subject principal)
+    (score-change int)
+  )
+  (let (
+      (sender tx-sender)
+      (identity (map-get? identities subject))
+      (current-score (get reputation-score (unwrap! identity ERR-NOT-REGISTERED)))
+      (score-change-abs (if (< score-change 0)
+        (* score-change -1)
+        score-change
+      ))
+    )
+    (asserts! (is-eq sender (var-get admin)) ERR-NOT-AUTHORIZED)
+    (asserts!
+      (or
+        (> score-change 0)
+        (>= (to-int current-score) score-change-abs)
+      )
+      ERR-INVALID-SCORE
+    )
+
+    (map-set identities subject
+      (merge (unwrap-panic identity) {
+        reputation-score: (if (> score-change 0)
+          (+ current-score (to-uint score-change))
+          (to-uint (- (to-int current-score) score-change-abs))
+        ),
+      })
+    )
+    (ok true)
+  )
+)
+
+;; RECOVERY MECHANISM FUNCTIONS
+
+;; Execute identity recovery using designated recovery address
+(define-public (initiate-recovery
+    (identity principal)
+    (new-hash (buff 32))
+  )
+  (let (
+      (sender tx-sender)
+      (identity-data (map-get? identities identity))
+      (recovery-address (unwrap! (get recovery-address (unwrap! identity-data ERR-NOT-REGISTERED))
+        ERR-NOT-AUTHORIZED
+      ))
+    )
+    (asserts! (is-eq sender recovery-address) ERR-NOT-AUTHORIZED)
+
+    (map-set identities identity
+      (merge (unwrap-panic identity-data) {
+        hash: new-hash,
+        last-updated: block-height,
+        status: "RECOVERED",
+      })
+    )
+    (ok true)
+  )
+)
+
+;; READ-ONLY QUERY FUNCTIONS
+
+;; Retrieve complete identity data for a given principal
+(define-read-only (get-identity (identity principal))
+  (map-get? identities identity)
+)
+
+;; Retrieve credential information by issuer and nonce
+(define-read-only (get-credential
+    (issuer principal)
+    (nonce uint)
+  )
+  (map-get? credential-map {
+    issuer: issuer,
+    nonce: nonce,
+  })
+)
