@@ -127,7 +127,7 @@
       credentials: (list),
       reputation-score: u100,
       recovery-address: recovery-addr,
-      last-updated: block-height,
+      last-updated: stacks-block-height,
       status: "ACTIVE",
     })
     (ok true)
@@ -282,7 +282,7 @@
     (map-set identities identity
       (merge (unwrap-panic identity-data) {
         hash: new-hash,
-        last-updated: block-height,
+        last-updated: stacks-block-height,
         status: "RECOVERED",
       })
     )
@@ -322,7 +322,7 @@
     )))
     (ok (and
       (not (get revoked credential))
-      (< block-height (get expiration credential))
+      (< stacks-block-height (get expiration credential))
     ))
   )
 )
@@ -355,7 +355,7 @@
 
 ;; Validate expiration is sufficiently in the future
 (define-private (is-valid-expiration (expiration uint))
-  (> expiration (+ block-height MIN-EXPIRATION-BLOCKS))
+  (> expiration (+ stacks-block-height MIN-EXPIRATION-BLOCKS))
 )
 
 ;; Validate metadata length does not exceed limits
